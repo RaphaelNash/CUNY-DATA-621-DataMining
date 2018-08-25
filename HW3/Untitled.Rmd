@@ -1,0 +1,319 @@
+---
+title: "CUNY Data 621 HW3 Logiistical Regression"
+author: "Raphael Nash"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+#Introduction
+This assignement we will do a logistical regression to predict crime giving an input dataset.   A training and evaluation dataset have been provided.   
+
+To accomplish this I am going to use the following libraries:
+1. ggplot2
+2. reshape2
+3. coreplot
+4. forecast
+5. dplyr
+6. Deducer
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+library(ggplot2)
+library(reshape2)
+library(corrplot) 
+library(forecast)
+library(dplyr)
+library(Deducer)
+
+crime_df <- read.csv("crime-training-data.csv")
+```
+
+#Data Exploration 
+
+Summary Statistics:
+```{r echo=FALSE}
+summary(crime_df )
+```
+
+
+
+Box Plot of data
+```{r fig.width=20,fig.height=20 , message=FALSE, warning=FALSE, echo=FALSE}
+
+ggplot(data = melt(crime_df), aes(x=variable, y=value)) + geom_boxplot()  + coord_flip() + theme(text = element_text(size=40),
+        axis.text.x = element_text(angle=70, hjust=1))
+```
+
+Correlation Plot of Data:
+```{r message=FALSE, warning=FALSE, echo=FALSE }
+M <- cor((crime_df)) 
+corrplot(M, method = "ellipse")
+```
+
+Correlation Matrix:
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+M
+```
+
+Scatterplats for each variable against the target:
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+pairs(crime_df, col=crime_df$target)
+```
+
+
+#Transformations
+
+Since the data does not look normally distributed, I am going to perform a Box-Cox transfomration on each of the input variables.  The labdas for each variable are as follows:
+```{r message=FALSE, warning=FALSE, echo=FALSE } 
+calculate_labbdas <- function(df){
+  df <- df[,1:ncol(df)]
+  l1 <- numeric(ncol(df))
+  for (i in 1:ncol(df)){
+    l1[i] <- BoxCox.lambda(df[,i])
+  }
+  return(data.frame(l1, colnames(df)))
+}
+ 
+box_cox_lambdas <- calculate_labbdas( dplyr::select(crime_df, -target))
+colnames(box_cox_lambdas) <- c("lambda", "variable")
+
+box_cox_lambdas
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+crime_transformed_df <- crime_df
+crime_transformed_df$zn <- crime_transformed_df$zn ^ (filter(box_cox_lambdas, variable=="zn")$lambda)
+crime_transformed_df$indus <- crime_transformed_df$indus ^ (filter(box_cox_lambdas, variable=="indus")$lambda)
+crime_transformed_df$chas <- crime_transformed_df$chas ^ (filter(box_cox_lambdas, variable=="chas")$lambda)
+crime_transformed_df$nox <- crime_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="nox")$lambda)
+crime_transformed_df$nox <- crime_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="rm")$lambda)
+crime_transformed_df$age <- crime_transformed_df$age ^ (filter(box_cox_lambdas, variable=="age")$lambda)
+crime_transformed_df$dis <- crime_transformed_df$dis ^ (filter(box_cox_lambdas, variable=="dis")$lambda)
+crime_transformed_df$rad <- crime_transformed_df$rad ^ (filter(box_cox_lambdas, variable=="rad")$lambda)
+crime_transformed_df$tax <- crime_transformed_df$tax ^ (filter(box_cox_lambdas, variable=="tax")$lambda)
+crime_transformed_df$ptratio <- crime_transformed_df$ptratio ^ (filter(box_cox_lambdas, variable=="ptratio")$lambda)
+
+```
+
+
+#Build Models
+
+I will bild a model starting with all the variables are removing the least signifigant variables until the AIC starts increaseing 
+
+
+Summary of model will all varirables (model1):  
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+model1 <- glm(target~., data =crime_transformed_df, family=binomial )
+summary(model1)
+```
+
+
+If I drop all non signifigant variables I am left with the following variables:nox, age, dis, pratio, mdev.
+Therefore I am going to build a model with thoses variables.  
+Here is the summary for that model (model2)
+```{r message=FALSE, warning=FALSE}
+model2 <- glm(target~nox+ age+dis+ rad+ptratio+medv  , data =crime_transformed_df, family=binomial )
+summary(model2)
+```
+
+The least signifigant variable of all the variables left is age, so I will drop that variable and create a model with the remaining variables.  
+Here is the summary of that model:
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+model3 <- glm(target~nox+dis+ rad+ptratio+medv , , data =crime_transformed_df, family=binomial )
+summary(model3)
+```
+Since AIC started to go up, I am going to stop removing variables.  
+
+#Select Models:
+I am going to select the model based on area under the ROC curve (A/K/A AUC) and AIC.  
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+rocplot(model1)
+```
+The AIC for model1 is `r  summary(model1)$aic`
+
+Model2 Variables in Model 2:  nox + age + dis + rad + ptratio + medv
+```{r message=FALSE, warning=FALSE, echo=FALSE }
+rocplot(model2)
+```
+
+The AIC for model1 is `r  summary(model2)$aic`
+
+Model3 Variables: nox + age + dis + rad + ptratio + medv, 
+```{r message=FALSE, warning=FALSE, echo=FALSE } 
+rocplot(model3)
+```
+The AIC for model3 is `r  summary(model3)$aic`
+
+Based the fact that the area under the curve for model 1 and model 2 are virtually identical and the AIC for model 2 is about 1/2 the AIC for model 1 I am going to select model2.
+
+
+#Make Predications
+```{r message=FALSE, warning=FALSE, echo=FALSE }
+crime_eval_df <- read.csv("crime-evaluation-data.csv")
+crime_eval_transformed_df <- crime_eval_df
+crime_eval_transformed_df$zn <- crime_eval_transformed_df$zn ^ (filter(box_cox_lambdas, variable=="zn")$lambda)
+crime_eval_transformed_df$indus <- crime_eval_transformed_df$indus ^ (filter(box_cox_lambdas, variable=="indus")$lambda)
+crime_eval_transformed_df$chas <- crime_eval_transformed_df$chas ^ (filter(box_cox_lambdas, variable=="chas")$lambda)
+crime_eval_transformed_df$nox <- crime_eval_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="nox")$lambda)
+crime_eval_transformed_df$nox <- crime_eval_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="rm")$lambda)
+crime_eval_transformed_df$age <- crime_eval_transformed_df$age ^ (filter(box_cox_lambdas, variable=="age")$lambda)
+crime_eval_transformed_df$dis <- crime_eval_transformed_df$dis ^ (filter(box_cox_lambdas, variable=="dis")$lambda)
+crime_eval_transformed_df$rad <- crime_eval_transformed_df$rad ^ (filter(box_cox_lambdas, variable=="rad")$lambda)
+crime_eval_transformed_df$tax <- crime_eval_transformed_df$tax ^ (filter(box_cox_lambdas, variable=="tax")$lambda)
+crime_eval_transformed_df$ptratio <- crime_eval_transformed_df$ptratio ^ (filter(box_cox_lambdas, variable=="ptratio")$lambda)
+
+probs <- predict(model2,crime_eval_df)
+prediction <- ifelse ( probs > .5 ,1,0)
+
+cbind(prediction, crime_eval_df)
+```
+
+
+#Appendix (R Code)
+##Setup
+
+library(ggplot2)
+
+library(reshape2)
+
+library(corrplot) 
+
+library(forecast)
+
+library(dplyr)
+
+library(Deducer)
+
+crime_df <- read.csv("crime-training-data.csv")
+
+
+##Data Exploration 
+
+summary(crime_df )
+
+ggplot(data = melt(crime_df), aes(x=variable, y=value)) + geom_boxplot()  + coord_flip() + theme(text = element_text(size=40),
+        axis.text.x = element_text(angle=70, hjust=1))
+
+M <- cor((crime_df)) 
+corrplot(M, method = "ellipse")
+
+pairs(crime_df, col=crime_df$target)
+
+
+##Transformations
+
+calculate_labbdas <- function(df){
+
+  df <- df[,1:ncol(df)]
+  
+  l1 <- numeric(ncol(df))
+  
+  for (i in 1:ncol(df)){
+  
+    l1[i] <- BoxCox.lambda(df[,i])
+    
+  }
+  
+  return(data.frame(l1, colnames(df)))
+  
+}
+
+ 
+box_cox_lambdas <- calculate_labbdas( dplyr::select(crime_df, -target))
+
+colnames(box_cox_lambdas) <- c("lambda", "variable")
+
+
+
+box_cox_lambdas
+
+
+crime_transformed_df <- crime_df
+
+crime_transformed_df$zn <- crime_transformed_df$zn ^ (filter(box_cox_lambdas, variable=="zn")$lambda)
+
+crime_transformed_df$indus <- crime_transformed_df$indus ^ (filter(box_cox_lambdas, variable=="indus")$lambda)
+
+crime_transformed_df$chas <- crime_transformed_df$chas ^ (filter(box_cox_lambdas, variable=="chas")$lambda)
+
+crime_transformed_df$nox <- crime_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="nox")$lambda)
+
+crime_transformed_df$nox <- crime_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="rm")$lambda)
+
+crime_transformed_df$age <- crime_transformed_df$age ^ (filter(box_cox_lambdas, variable=="age")$lambda)
+
+crime_transformed_df$dis <- crime_transformed_df$dis ^ (filter(box_cox_lambdas, variable=="dis")$lambda)
+
+crime_transformed_df$rad <- crime_transformed_df$rad ^ (filter(box_cox_lambdas, variable=="rad")$lambda)
+
+crime_transformed_df$tax <- crime_transformed_df$tax ^ (filter(box_cox_lambdas, variable=="tax")$lambda)
+
+crime_transformed_df$ptratio <- crime_transformed_df$ptratio ^ (filter(box_cox_lambdas, variable=="ptratio")$lambda)
+
+
+
+##Build Models
+
+model1 <- glm(target~., data =crime_transformed_df, family=binomial )
+
+summary(model1)
+
+model2 <- glm(target~nox+ age+dis+ rad+ptratio+medv  , data =crime_transformed_df, family=binomial )
+
+summary(model2)
+
+model3 <- glm(target~nox+dis+ rad+ptratio+medv , , data =crime_transformed_df, family=binomial )
+
+summary(model3)
+
+##Select Models:
+
+rocplot(model1)
+
+rocplot(model2)
+
+rocplot(model3)
+
+##Make Predications
+
+crime_eval_df <- read.csv("crime-evaluation-data.csv")
+
+crime_eval_transformed_df <- crime_eval_df
+
+crime_eval_transformed_df$zn <- crime_eval_transformed_df$zn ^ (filter(box_cox_lambdas, variable=="zn")$lambda)
+
+crime_eval_transformed_df$indus <- crime_eval_transformed_df$indus ^ (filter(box_cox_lambdas, variable=="indus")$lambda)
+
+crime_eval_transformed_df$chas <- crime_eval_transformed_df$chas ^ (filter(box_cox_lambdas, variable=="chas")$lambda)
+
+crime_eval_transformed_df$nox <- crime_eval_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="nox")$lambda)
+
+crime_eval_transformed_df$nox <- crime_eval_transformed_df$nox ^ (filter(box_cox_lambdas, variable=="rm")$lambda)
+
+crime_eval_transformed_df$age <- crime_eval_transformed_df$age ^ (filter(box_cox_lambdas, variable=="age")$lambda)
+
+crime_eval_transformed_df$dis <- crime_eval_transformed_df$dis ^ (filter(box_cox_lambdas, variable=="dis")$lambda)
+
+crime_eval_transformed_df$rad <- crime_eval_transformed_df$rad ^ (filter(box_cox_lambdas, variable=="rad")$lambda)
+
+crime_eval_transformed_df$tax <- crime_eval_transformed_df$tax ^ (filter(box_cox_lambdas, variable=="tax")$lambda)
+
+crime_eval_transformed_df$ptratio <- crime_eval_transformed_df$ptratio ^ (filter(box_cox_lambdas, variable=="ptratio")$lambda)
+
+
+probs <- predict(model2,crime_eval_df)
+
+prediction <- ifelse ( probs > .5 ,1,0)
+
+cbind(prediction, crime_eval_df)
+
+
+
+

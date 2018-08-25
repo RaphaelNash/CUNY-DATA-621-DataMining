@@ -1,0 +1,360 @@
+---
+title: "CUNY DATA 621 HW1 MoneyBall"
+author: "Raphael Nash"
+output:
+  pdf_document: 
+    toc: true
+  html_notebook: 
+    toc: true
+---
+
+```{r, message=FALSE, echo= FALSE}
+library(tidyverse)
+library(psych)
+library(e1071)
+library(corrplot) 
+```
+#1. Data Exploration
+Describe the size and the variables in the moneyball training data set. Consider that too much detail will cause a
+manager to lose interest while too little detail will make the manager consider that you aren’t doing your job. Some
+suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment.
+You should have your own thoughts on what to tell the boss. These are just ideas.
+
+
+
+
+##Summary Statistics
+
+
+
+```{r, message=FALSE,  echo= FALSE}
+
+
+training <- read.csv( "moneyball-training-data.csv")
+
+summary(training)
+ 
+```
+
+##Box Plot
+
+```{r, fig.width=20, message=FALSE, warning=FALSE,  echo= FALSE}
+
+training_tidy <- gather(data =training,  key=key,value=value,-INDEX  )
+training_tidy <-  subset(training_tidy, key != "TEAM_BATTING_HBP")
+ggplot(data=training_tidy) + geom_boxplot(aes(x=key, y=value)) + 
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=70, hjust=1))
+```
+##Correlation Check
+
+
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+
+training_corr_plot <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP", "INDEX" ))]
+training_corr_plot <- training_corr_plot[complete.cases(training_corr_plot), ]
+M <- cor(training_corr_plot) 
+corrplot(M, method = "ellipse")
+ 
+
+```
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+M
+```
+
+
+
+
+#2. Data Preparation
+
+
+
+##Dealing with missing values
+In order to deal with missing values, I will drop hit by pitch(TEAM_BATTING_HBP), Since it has too many missing values.  I will then run a function that replaces all missing values with the meadian of the column it is in 
+
+
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+
+training <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP" ))]
+
+
+for(i in 1:ncol(training)){
+  training[is.na(training[,i]), i] <- mean(training[,i], na.rm = TRUE)
+}
+
+summary(training)
+
+```
+
+##Massage the dataset:  
+
+The dataset is missing a variable for singles, so I will add a variable called, TEAM_BATTING_1B, this variable will be hits - HR's - 2B - 3B.  Also to eal with the fact that TEAM_PITCHING_H, and TEAM_PITCHING_SO are very spread out, I will take the square root of theese values.  
+
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+training$TEAM_BATTING_1B <- training$TEAM_BATTING_H - (training$TEAM_BATTING_H+training$TEAM_BATTING_3B-training$TEAM_BATTING_2B)
+
+```
+
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+
+training$TEAM_PITCHING_H_SQRT <- sqrt(training$TEAM_PITCHING_H)
+training$TEAM_PITCHING_SO_SQRT <- sqrt(training$TEAM_PITCHING_SO)
+```
+
+
+##Exploration cleaning data
+
+###Summary Stats:
+```{r message=FALSE, warning=FALSE,  echo= FALSE }
+summary(training)
+```
+
+###BoxPlot
+
+```{r fig.width=20, message=FALSE, warning=FALSE,  echo= FALSE}
+
+training_tidy <- gather(data =training,  key=key,value=value,-INDEX  )
+training_tidy <-  subset(training_tidy, key != "TEAM_BATTING_HBP")
+training_tidy <-  subset(training_tidy, key != "TEAM_PITCHING_H")
+training_tidy <-  subset(training_tidy, key != "TEAM_PITCHING_SO")
+ggplot(data=training_tidy) + geom_boxplot(aes(x=key, y=value)) + 
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=70, hjust=1))
+```
+###Correlation
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+ 
+training_corr_plot <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP", "INDEX" ))]
+training_corr_plot <- training_corr_plot[complete.cases(training_corr_plot), ]
+M <- cor(training_corr_plot) 
+corrplot(M, method = "ellipse")
+ 
+```
+
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+M
+```
+
+There does not seem to be much co-linearity in this data.  
+
+#3. Build Models
+In this section I will create 3 models.  Looking at the correlation, the most positively correlated to wins is total hits, the most negative correlation is home runs againts.   I will create 3 models one with each variable sperately and one with both variables combined.  
+
+
+##Model 1
+Take Team batting total hits as this has the most positive correlation to target wins.  
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+model1 <- lm(TARGET_WINS~TEAM_BATTING_H, data = training ) 
+summary(model1)
+```
+
+This model says that every team gets 18 wins and when you add a hit that adds .04 wins
+
+##Model 2
+
+For model two, I am going to look at how TEAM_PITCHING_HR effects target wins.  This is a measure of how bad a teams pitching is.  This variable also had the most negative correlation to target wins.  
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+
+model2 <- lm(TARGET_WINS~TEAM_PITCHING_HR, data = training ) 
+summary(model2)
+
+```
+This model says that if each team starts with 75 wins, for each Homerun that is hit the team would win .04 more games.  To me this does not make much sense.  
+
+##Model 3 
+ 
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+model3 <- lm(TARGET_WINS~TEAM_BATTING_H+TEAM_PITCHING_HR, data = training ) 
+summary(model3)
+```
+
+In this regession for each hit or each homerun that is scored against a team it adds .04 wins from a baseline of 16 wins.   
+
+#4. Select Models
+
+Since model 3 has the higest R^2, I am going to select hat model.  The main thing with this model is becasue R^2 is low the model may not be very acurate, however since it takes into account the 2 most influential offensive and defensive variables should be an ok model.  
+
+
+## Make Predictions 
+To run the predictions, I read in the evaluation dataset run it through the model and get the output.  The first 20 rows of my predictions are:  
+```{r message=FALSE, warning=FALSE,  echo= FALSE}
+
+testing <- read.csv("moneyball-evaluation-data.csv")
+testing$Predicted_Wins <- predict (model3, testing[,c("TEAM_BATTING_H", "TEAM_PITCHING_HR" )] )
+
+head(testing[,c("Predicted_Wins", "TEAM_BATTING_H", "TEAM_PITCHING_HR" )],20) 
+```
+
+#5. Appendix (R Code)
+
+##Imports
+```{r, message=FALSE, echo= FALSE, eval=FALSE}
+library(tidyverse)
+library(psych)
+library(e1071)
+library(corrplot) 
+```
+##Data Exploration
+
+
+
+
+###Summary Statistics
+
+
+
+```{r, message=FALSE ,eval=FALSE}
+
+
+training <- read.csv( "moneyball-training-data.csv")
+
+summary(training)
+ 
+```
+
+###Box Plot
+
+```{r, fig.width=20, message=FALSE, warning=FALSE,  eval=FALSE}
+
+training_tidy <- gather(data =training,  key=key,value=value,-INDEX  )
+training_tidy <-  subset(training_tidy, key != "TEAM_BATTING_HBP")
+ggplot(data=training_tidy) + geom_boxplot(aes(x=key, y=value)) + 
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=70, hjust=1))
+```
+###Correlation Check
+
+
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+
+training_corr_plot <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP", "INDEX" ))]
+training_corr_plot <- training_corr_plot[complete.cases(training_corr_plot), ]
+M <- cor(training_corr_plot) 
+corrplot(M, method = "ellipse")
+ 
+
+```
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+M
+```
+
+
+
+
+##Data Preparation
+
+
+
+##Dealing with missing values
+In order to deal with missing values, I will drop hit by pitch(TEAM_BATTING_HBP), Since it has too many missing values.  I will then run a function that replaces all missing values with the meadian of the column it is in 
+
+
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+
+training <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP" ))]
+
+
+for(i in 1:ncol(training)){
+  training[is.na(training[,i]), i] <- mean(training[,i], na.rm = TRUE)
+}
+
+summary(training)
+
+```
+
+##Massage the dataset:  
+
+The dataset is missing a variable for singles, so I will add a variable called, TEAM_BATTING_1B, this variable will be hits - HR's - 2B - 3B.  Also to eal with the fact that TEAM_PITCHING_H, and TEAM_PITCHING_SO are very spread out, I will take the square root of theese values.  
+
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+training$TEAM_BATTING_1B <- training$TEAM_BATTING_H - (training$TEAM_BATTING_H+training$TEAM_BATTING_3B-training$TEAM_BATTING_2B)
+
+```
+
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+
+training$TEAM_PITCHING_H_SQRT <- sqrt(training$TEAM_PITCHING_H)
+training$TEAM_PITCHING_SO_SQRT <- sqrt(training$TEAM_PITCHING_SO)
+```
+
+
+##Exploration cleaning data
+
+###Summary Stats:
+```{r message=FALSE, warning=FALSE,  eval=FALSE }
+summary(training)
+```
+
+###BoxPlot
+
+```{r fig.width=20, message=FALSE, warning=FALSE,  eval=FALSE}
+
+training_tidy <- gather(data =training,  key=key,value=value,-INDEX  )
+training_tidy <-  subset(training_tidy, key != "TEAM_BATTING_HBP")
+training_tidy <-  subset(training_tidy, key != "TEAM_PITCHING_H")
+training_tidy <-  subset(training_tidy, key != "TEAM_PITCHING_SO")
+ggplot(data=training_tidy) + geom_boxplot(aes(x=key, y=value)) + 
+  theme(text = element_text(size=20),
+        axis.text.x = element_text(angle=70, hjust=1))
+```
+###Correlation
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+ 
+training_corr_plot <- training[ , !(names(training) %in% c("TEAM_BATTING_HBP", "INDEX" ))]
+training_corr_plot <- training_corr_plot[complete.cases(training_corr_plot), ]
+M <- cor(training_corr_plot) 
+corrplot(M, method = "ellipse")
+ 
+```
+
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+M
+```
+
+ 
+
+##Build Models
+
+
+###Model 1
+ 
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+model1 <- lm(TARGET_WINS~TEAM_BATTING_H, data = training ) 
+summary(model1)
+```
+
+ 
+
+###Model 2
+ 
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+
+model2 <- lm(TARGET_WINS~TEAM_PITCHING_HR, data = training ) 
+summary(model2)
+
+```
+ 
+
+###Model 3 
+ 
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+model3 <- lm(TARGET_WINS~TEAM_BATTING_H+TEAM_PITCHING_HR, data = training ) 
+summary(model3)
+```
+
+   
+
+##Select Models
+
+ 
+
+### Make Predictions 
+ 
+```{r message=FALSE, warning=FALSE,  eval=FALSE}
+
+testing <- read.csv("moneyball-evaluation-data.csv")
+testing$Predicted_Wins <- predict (model3, testing[,c("TEAM_BATTING_H", "TEAM_PITCHING_HR" )] )
+
+head(testing[,c("Predicted_Wins", "TEAM_BATTING_H", "TEAM_PITCHING_HR" )],20) 
+```
+

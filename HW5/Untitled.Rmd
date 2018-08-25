@@ -1,0 +1,129 @@
+---
+title: "CUNY DATA 621 HW 5"
+output:
+  pdf_document: default
+  html_notebook: default
+Author: Raphael Nash
+---
+
+
+```{r message=FALSE}
+library( ggplot2)
+library(reshape2)
+library(corrplot)
+library (MASS)
+library(Deducer)
+library(ROCR)
+library(dplyr)
+```
+
+
+#Basic Data Exploration
+```{r}
+
+wine_df <- read.csv('wine-training-data.csv') 
+
+wine_df <- wine_df[,-c(1)]
+```
+
+```{r}
+summary(wine_df)
+```
+
+
+```{r}
+
+wine_melt_df <- melt(wine_df[,sapply(wine_df, is.numeric)])
+
+ggplot(wine_melt_df,aes(x = value)) + 
+    facet_wrap(~variable,scales = "free") + 
+    geom_histogram()
+```
+
+
+#Explore relationship of stars
+The min value of stars is 1 therefore it seems logical that missing data in stars means zero stars. 
+
+
+```{r}
+wine_stars_target_df <- wine_df[,c("TARGET", "STARS")] 
+wine_stars_target_df[is.na(wine_stars_target_df[,"STARS"]), "STARS"] <-0
+
+ggplot(wine_stars_target_df, aes(x=factor(STARS), y=TARGET)) + stat_summary(fun.y="mean", geom="bar") + xlab("Average Stars")
+```
+
+```{r}
+ggplot(wine_stars_target_df,aes(x = STARS)) + 
+    geom_histogram()
+
+```
+
+#Data imputations
+For this dataset we will want to treat stars as if it is a categorical variable, with all missing values treated as 0.  The rest of the missing data will be replaced with the median of the value.
+
+```{r}
+str(wine_df)
+```
+
+```{r, message=FALSE, warning=FALSE}
+wine_df[is.na(wine_df[,"STARS"]), "STARS"] <-0
+
+ 
+wine_df <- wine_df %>% 
+   mutate_all(~ifelse(is.na(.), median(., na.rm = TRUE), .))
+wine_df$STARS<- as.factor(wine_df$STARS)
+```
+
+
+#Transforms 
+All data is relatively normal.  No transforms needed.  
+
+
+#Build Models
+
+
+##Possion
+
+Build a possion model with all variables
+```{r}
+model_posion1 <- glm(TARGET ~  . , data=wine_df,  poisson )  
+ 
+summary(model_posion1)
+```
+
+
+#Build Negaive bionomial Model 
+```{r}
+
+model_neg_binomial <- glm(TARGET ~  . , data=wine_df,  quasipoisson )  
+summary(model_neg_binomial)
+
+```
+
+#compare models
+Becasue of the fact that I transformed the STARS varaiable into a categorical variable the model is not overdispersed, therefore the possion and negative binomials are the same.  
+
+#Generate predications
+
+
+```{r}
+
+wine_eval_df <- read.csv("wine-evaluation-data.csv")
+wine_eval_df[is.na(wine_eval_df[,"STARS"]), "STARS"] <-0
+
+
+wine_df <- wine_df %>% 
+   mutate_all(~ifelse(is.na(.), median(., na.rm = TRUE), .))
+
+wine_eval_df$STARS <- as.factor(wine_eval_df$STARS)
+```
+
+
+```{r}
+str(wine_df)
+
+```
+```{r}
+round(predict(model_posion1, wine_eval_df))
+```
+

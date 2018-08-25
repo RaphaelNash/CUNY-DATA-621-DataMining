@@ -1,0 +1,411 @@
+---
+title: "CUNY DATA 621 Homework 4"
+author: "Raphael Nash"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+library(ggplot2)
+library(reshape2)
+library(corrplot) 
+library(forecast)
+library(dplyr)
+library(Deducer)
+library(tidyr)
+library(DataExplorer)
+library(speedglm)
+```
+
+#Exploration
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+training_df <-  read.csv ("insurance_training_data.csv")
+eval_df <- read.csv("insurance-evaluation-data.csv")
+head(training_df)
+```
+
+
+```{r}
+
+summary(training_df )
+```
+
+Plot histograms for continous data
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+
+histogram_df <- training_df[, c( "TARGET_AMT", "KIDSDRIV", "AGE","HOMEKIDS", "YOJ", "INCOME" , "HOME_VAL",
+                                 "TRAVTIME", "BLUEBOOK", "TIF", "OLDCLAIM", "CLM_FREQ", "MVR_PTS", "CAR_AGE")]
+
+
+plot_histogram(histogram_df)
+```
+
+
+Create Bar Plots for descrete data
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+bar_df <- training_df[,c("PARENT1","MSTATUS","SEX","EDUCATION","JOB","CAR_USE","CAR_TYPE",
+                         "RED_CAR","REVOKED","URBANICITY") ]
+
+plot_bar(bar_df)
+
+```
+
+#Transformation
+
+
+1) Car age should not be less than 0, so if it is 0 then make it 0
+2) Make missing values for Job "Unknown"
+3) Convert Currency to numberic for Income and Home Value
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+training_df$CAR_AGE[training_df$CAR_AGE < 0 ] <- 0
+training_df$JOB <- as.character(training_df$JOB)
+training_df$JOB[training_df$JOB == ""] <- "Unknown"
+training_df$JOB <- as.factor(training_df$JOB)
+training_df$INCOME <- as.numeric(gsub('[$,]', '', training_df$INCOME))
+training_df$HOME_VAL <- as.numeric(gsub('[$,]', '', training_df$HOME_VAL))
+training_df$BLUEBOOK <- as.numeric(gsub('[$,]', '', training_df$BLUEBOOK))
+training_df$OLDCLAIM <- as.numeric(gsub('[$,]', '', training_df$OLDCLAIM))
+
+eval_df$CAR_AGE[eval_df$CAR_AGE < 0 ] <- 0
+eval_df$JOB <- as.character(eval_df$JOB)
+eval_df$JOB[eval_df$JOB == ""] <- "Unknown"
+eval_df$JOB <- as.factor(eval_df$JOB)
+eval_df$INCOME <- as.numeric(gsub('[$,]', '', eval_df$INCOME))
+eval_df$HOME_VAL <- as.numeric(gsub('[$,]', '', eval_df$HOME_VAL))
+eval_df$BLUEBOOK <- as.numeric(gsub('[$,]', '', eval_df$BLUEBOOK))
+eval_df$OLDCLAIM <- as.numeric(gsub('[$,]', '', eval_df$OLDCLAIM))
+
+```
+
+3)Fill missing values with median
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+ 
+
+training_df$AGE[is.na(training_df$AGE)] = median(training_df$AGE, na.rm=TRUE)
+training_df$CAR_AGE[is.na(training_df$CAR_AGE)] = median(training_df$CAR_AGE, na.rm=TRUE)
+training_df$INCOME[is.na(training_df$INCOME)] = median(training_df$INCOME, na.rm=TRUE)
+training_df$YOJ[is.na(training_df$YOJ)] = median(training_df$YOJ, na.rm=TRUE)
+training_df$HOME_VAL[is.na(training_df$HOME_VAL)] = median(training_df$HOME_VAL, na.rm=TRUE) 
+
+
+eval_df$AGE[is.na(eval_df$AGE)] = median(eval_df$AGE, na.rm=TRUE)
+eval_df$CAR_AGE[is.na(eval_df$CAR_AGE)] = median(eval_df$CAR_AGE, na.rm=TRUE)
+eval_df$INCOME[is.na(eval_df$INCOME)] = median(eval_df$INCOME, na.rm=TRUE)
+eval_df$YOJ[is.na(eval_df$YOJ)] = median(eval_df$YOJ, na.rm=TRUE)
+eval_df$HOME_VAL[is.na(eval_df$HOME_VAL)] = median(eval_df$HOME_VAL, na.rm=TRUE)
+```
+
+
+
+# Builid models
+
+## Logistical Regression.
+
+Build Logistical Regression model to predict if person has a claim (TARGET_FLAG).  Of course inorder to do theis we will have to remove TARGET_AMT and INDEX from the dataframe.  INDEX truely has not value, and you only have a claim amoiunt if you have a claim.  I will use backward selection to select the best logistical model.  
+### Model 1
+
+
+Model with all variables:  
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+
+trainng_logit_df <- training_df[ , !names(training_df) %in% c("INDEX", "TARGET_AMT")   ]
+ 
+
+logit_model1 <- glm (TARGET_FLAG ~ .
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model1)
+
+
+```
+
+###Model 2 
+To make Model 2 I will remove the non-signifigant variables from model 1.  This Model will predict TARGET_FLAG based on INCOME, PARENT1, HOME_VAL, MSTATUS,EDUCATION,JOB, TRAVTIME ,CAR_USE, BLUEBOOK, TIF,  CAR_TYPE, OLDCLAIM, CLM_FREQ, REVOKED_MVR_PTS, and URBANICITY.  All
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+
+logit_model2 <- glm (TARGET_FLAG ~ INCOME+ PARENT1 + HOME_VAL+ MSTATUS+EDUCATION+JOB+ TRAVTIME +CAR_USE+ BLUEBOOK + TIF+ CAR_TYPE+OLDCLAIM+CLM_FREQ+REVOKED+MVR_PTS+URBANICITY
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model2)
+
+```
+##MODEL 3
+In this iteration, I will remove all values from the model where all levels of that variable do not have a p value of <.001.  This will get our model focusing on the mose signifigant values. This model will predict TARGET_FLAG  based on HOME_VAL, MSTATUS, TRAVTIME, CAR_USE, BLUEBOOK, TIF, CAR_TYPE, OLDCLAIM, CLM_FREQ, REVOKED, MVR_PTS, URBANICITY
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+logit_model3 <- glm (TARGET_FLAG ~   HOME_VAL+ MSTATUS+ TRAVTIME +CAR_USE+ BLUEBOOK + TIF+ CAR_TYPE+OLDCLAIM+CLM_FREQ+REVOKED+MVR_PTS+URBANICITY
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model3)
+
+
+```
+
+The coefiencents of the model make a lok of sense.  Travel Time, Claim Frequency , license points (MVR_PTS) all have positive coeficients and that makes sense to me that thoses variables would be positively correlated to  if there is a Claim.  It also makes sense that Bluebook would be negative related to if there is a Claim since people take better care of more expensive cars.  
+##Claim Amount Regression Model   
+
+The second model we will create will predict the claim amount, based on if the person had a claim.  
+
+###Model 1 
+This model will contain all variables.  
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+regression_training_df  <- training_df[training_df$TARGET_FLAG == 1, ]
+regression_training_df <- regression_training_df[ , !names(regression_training_df) %in% c("INDEX", "TARGET_FLAG")   ]
+ 
+str(regression_training_df)
+```
+
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+reg_model1 <- lm(TARGET_AMT ~., data = regression_training_df)
+summary(reg_model1)
+```
+
+### Model 2
+From regression model I am am going to drop all but the statisticall signifigant variables.  This model will predict target amount based on BLUEBOOK, REVOKED, CAR_AGE, EDUCATION
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+reg_model2 <- lm(TARGET_AMT ~BLUEBOOK + REVOKED + CAR_AGE + EDUCATION, data = regression_training_df)
+summary(reg_model2)
+```
+
+
+###Model 3
+For this model I will again drop all but the most signifigant variabels.  That will mean this model will predict claim amout based on car age and blue book.
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+reg_model3 <- lm(TARGET_AMT ~BLUEBOOK  + CAR_AGE , data = regression_training_df)
+summary(reg_model3)
+```
+
+###Model 4
+I am going to build one last model that will just predict claim amount from bluebook value.  This is becasue car age is not signifigant in model3.   This model makes a lot of sense, since the amount of payout is capped by the blue book value.  
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+reg_model4 <- lm(TARGET_AMT ~BLUEBOOK   , data = regression_training_df)
+summary(reg_model4)
+```
+#Model Selection
+
+To Select Models I am going to look at the ROC curves and the area unver the curve.
+
+##Model Selection Logistical Regression
+
+Model1
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+rocplot(logit_model1)
+```
+
+Model2
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+rocplot(logit_model2)
+```
+
+Model3
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+rocplot(logit_model3)
+```
+I am going to select model3.  All three models have about the same ROC, but model 3 is signifiganly simplier.  
+
+##Claim Amount Regression Model Selection
+I am going to pick the fourth model.  This is becasue while all the models have about the same R^2 value, model 4 is signifigantly simplier.   
+
+#Make Predications
+
+```{r message = FALSE, echo=FALSE , warning=FALSE}
+
+
+probs <- predict(logit_model3,eval_df)
+prediction <- ifelse ( probs > .5 ,1,0)
+
+eval_df$TARGET_FLAG<-prediction
+
+eval_df$TARGET_AMT <- with(eval_df , ifelse ( TARGET_FLAG ==0, BLUEBOOK* reg_model4$coefficients[2] + reg_model4$coefficients[1],0) )
+
+head(eval_df)
+
+```
+
+
+
+#Appendix R Code
+
+
+
+library(ggplot2)
+library(reshape2)
+library(corrplot) 
+library(forecast)
+library(dplyr)
+library(Deducer)
+library(tidyr)
+library(DataExplorer)
+library(speedglm)
+
+
+##Exploration
+
+training_df <-  read.csv ("insurance_training_data.csv")
+eval_df <- read.csv("insurance-evaluation-data.csv")
+head(training_df)
+
+
+summary(training_df)
+
+
+histogram_df <- training_df[, c( "TARGET_AMT", "KIDSDRIV", "AGE","HOMEKIDS", "YOJ", "INCOME" , "HOME_VAL",
+                                 "TRAVTIME", "BLUEBOOK", "TIF", "OLDCLAIM", "CLM_FREQ", "MVR_PTS", "CAR_AGE")]
+
+
+plot_histogram(histogram_df)
+
+bar_df <- training_df[,c("PARENT1","MSTATUS","SEX","EDUCATION","JOB","CAR_USE","CAR_TYPE",
+                         "RED_CAR","REVOKED","URBANICITY") ]
+
+plot_bar(bar_df)
+
+
+
+##Transformation
+
+
+training_df$CAR_AGE[training_df$CAR_AGE < 0 ] <- 0
+training_df$JOB <- as.character(training_df$JOB)
+training_df$JOB[training_df$JOB == ""] <- "Unknown"
+training_df$JOB <- as.factor(training_df$JOB)
+training_df$INCOME <- as.numeric(gsub('[$,]', '', training_df$INCOME))
+training_df$HOME_VAL <- as.numeric(gsub('[$,]', '', training_df$HOME_VAL))
+training_df$BLUEBOOK <- as.numeric(gsub('[$,]', '', training_df$BLUEBOOK))
+training_df$OLDCLAIM <- as.numeric(gsub('[$,]', '', training_df$OLDCLAIM))
+eval_df$CAR_AGE[eval_df$CAR_AGE < 0 ] <- 0
+eval_df$JOB <- as.character(eval_df$JOB)
+eval_df$JOB[eval_df$JOB == ""] <- "Unknown"
+eval_df$JOB <- as.factor(eval_df$JOB)
+eval_df$INCOME <- as.numeric(gsub('[$,]', '', eval_df$INCOME))
+eval_df$HOME_VAL <- as.numeric(gsub('[$,]', '', eval_df$HOME_VAL))
+eval_df$BLUEBOOK <- as.numeric(gsub('[$,]', '', eval_df$BLUEBOOK))
+eval_df$OLDCLAIM <- as.numeric(gsub('[$,]', '', eval_df$OLDCLAIM))
+
+
+
+3)Fill missing values with median
+
+ 
+
+training_df$AGE[is.na(training_df$AGE)] = median(training_df$AGE, na.rm=TRUE)
+training_df$CAR_AGE[is.na(training_df$CAR_AGE)] = median(training_df$CAR_AGE, na.rm=TRUE)
+training_df$INCOME[is.na(training_df$INCOME)] = median(training_df$INCOME, na.rm=TRUE)
+training_df$YOJ[is.na(training_df$YOJ)] = median(training_df$YOJ, na.rm=TRUE)
+training_df$HOME_VAL[is.na(training_df$HOME_VAL)] = median(training_df$HOME_VAL, na.rm=TRUE) 
+
+
+eval_df$AGE[is.na(eval_df$AGE)] = median(eval_df$AGE, na.rm=TRUE)
+eval_df$CAR_AGE[is.na(eval_df$CAR_AGE)] = median(eval_df$CAR_AGE, na.rm=TRUE)
+eval_df$INCOME[is.na(eval_df$INCOME)] = median(eval_df$INCOME, na.rm=TRUE)
+eval_df$YOJ[is.na(eval_df$YOJ)] = median(eval_df$YOJ, na.rm=TRUE)
+eval_df$HOME_VAL[is.na(eval_df$HOME_VAL)] = median(eval_df$HOME_VAL, na.rm=TRUE)
+
+
+
+
+## Builid models
+
+### Logistical Regression.
+
+
+#### Model 1
+
+
+trainng_logit_df <- training_df[ , !names(training_df) %in% c("INDEX", "TARGET_AMT")   ]
+ 
+
+logit_model1 <- glm (TARGET_FLAG ~ .
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model1)
+
+
+
+
+####Model 2 
+
+
+logit_model2 <- glm (TARGET_FLAG ~ INCOME+ PARENT1 + HOME_VAL+ MSTATUS+EDUCATION+JOB+ TRAVTIME +CAR_USE+ BLUEBOOK + TIF+ CAR_TYPE+OLDCLAIM+CLM_FREQ+REVOKED+MVR_PTS+URBANICITY
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model2)
+
+
+###MODEL 3
+
+logit_model3 <- glm (TARGET_FLAG ~   HOME_VAL+ MSTATUS+ TRAVTIME +CAR_USE+ BLUEBOOK + TIF+ CAR_TYPE+OLDCLAIM+CLM_FREQ+REVOKED+MVR_PTS+URBANICITY
+                     , family = 'binomial', data=trainng_logit_df )
+summary(logit_model3)
+
+
+ 
+###Claim Amount Regression Model   
+
+
+####Model 1 
+
+
+regression_training_df  <- training_df[training_df$TARGET_FLAG == 1, ]
+regression_training_df <- regression_training_df[ , !names(regression_training_df) %in% c("INDEX", "TARGET_FLAG")   ]
+ 
+
+reg_model1 <- lm(TARGET_AMT ~., data = regression_training_df)
+summary(reg_model1)
+
+
+#### Model 2
+
+reg_model2 <- lm(TARGET_AMT ~BLUEBOOK + REVOKED + CAR_AGE + EDUCATION, data = regression_training_df)
+summary(reg_model2)
+
+
+
+####Model 3
+
+reg_model3 <- lm(TARGET_AMT ~BLUEBOOK  + CAR_AGE , data = regression_training_df)
+summary(reg_model3)
+
+
+####Model 4
+
+reg_model4 <- lm(TARGET_AMT ~BLUEBOOK   , data = regression_training_df)
+summary(reg_model4)
+
+##Model Selection
+
+
+###Model Selection Logistical Regression
+
+
+rocplot(logit_model1)
+
+
+rocplot(logit_model2)
+
+
+rocplot(logit_model3)
+
+
+###Claim Amount Regression Model Selection
+  
+
+##Make Predications
+
+
+
+probs <- predict(logit_model3,eval_df)
+prediction <- ifelse ( probs > .5 ,1,0)
+
+eval_df$TARGET_FLAG<-prediction
+
+eval_df$TARGET_AMT <- with(eval_df , ifelse ( TARGET_FLAG ==0, BLUEBOOK* reg_model4$coefficients[2] + reg_model4$coefficients[1],0) )
+
+head(eval_df)
+
+
+
+
+
+
